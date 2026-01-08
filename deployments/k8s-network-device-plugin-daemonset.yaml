@@ -1,0 +1,134 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: network-device-plugin-sa
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-device-plugin
+    app.kubernetes.io/component: rbac
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: network-device-plugin-config
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-device-plugin
+    app.kubernetes.io/component: config
+data:
+  config.json: |
+    {
+      "resourceList": [{
+        "resourceName": "nic",
+        "resourcePrefix": "amd.com",
+        "selectors": {
+          "vendors": ["1dd8"],
+          "devices": ["1002"],
+          "drivers": ["ionic"],
+          "excludeTopology": true,
+          "isRdma": true
+        }
+      },
+      {
+        "resourceName": "vnic",
+        "resourcePrefix": "amd.com",
+        "selectors": {
+          "vendors": ["1dd8"],
+          "devices": ["1003"],
+          "drivers": ["ionic"],
+          "excludeTopology": true,
+          "isRdma": true
+        }
+      }]
+    }
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: network-device-plugin-ds
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: network-device-plugin
+    app.kubernetes.io/component: daemonset
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: network-device-plugin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: network-device-plugin
+    spec:
+      serviceAccountName: network-device-plugin-sa
+      containers:
+      - name: network-device-plugin
+        image: registry.test.pensando.io:5000/k8s-network-device-plugin:v0.1
+        imagePullPolicy: IfNotPresent
+        args:
+        - "--log-dir=networkdp"
+        - "--log-level=10"
+        env:
+        - name: DS_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "40Mi"
+          limits:
+            cpu: "1"
+            memory: "200Mi"
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: plugins-registry
+          mountPath: /var/lib/kubelet/plugins_registry
+        - name: log-dir
+          mountPath: /var/log
+        - name: config
+          mountPath: /etc/pcidp
+        - name: device-info
+          mountPath: /var/run/k8s.cni.cncf.io/devinfo/dp
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - while [ ! -d /sys/class/infiniband ] || [ ! -d /sys/class/infiniband_verbs] || [ ! -d /sys/module/ionic/drivers ]; do echo "amd ionic driver is not loaded "; sleep 2 ;done
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        name: driver-init
+        resources: {}
+        securityContext:
+          privileged: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - name: sys
+          mountPath: /sys
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+      - name: plugins-registry
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+      - name: log-dir
+        hostPath:
+          path: /var/log
+      - name: device-info
+        hostPath:
+          path: /var/run/k8s.cni.cncf.io/devinfo/dp
+          type: DirectoryOrCreate
+      - name: config
+        configMap:
+          name: network-device-plugin-config
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory

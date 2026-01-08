@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-device-plugin
+  namespace: {{ .Release.Namespace }}
+  labels:
+  {{- include "helm-charts-network-dp.labels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: device-plugin
+      daemonset-name: {{ .Release.Name }}-device-plugin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: device-plugin
+        daemonset-name: {{ .Release.Name }}-device-plugin
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccountName | default (printf "%s-device-plugin" .Release.Name) }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if hasKey .Values "hostNetwork" }}
+      hostNetwork: {{ .Values.hostNetwork }}
+      {{- else }}
+      hostNetwork: true
+      {{- end }}
+      dnsPolicy: ClusterFirst
+      priorityClassName: system-node-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: driver-init
+          command: ["sh", "-c"]
+          args:
+            - |
+              while [ ! -d /sys/class/infiniband ] || [ ! -d /sys/class/infiniband_verbs ] || [ ! -d /sys/module/ionic/drivers ] || ! ls /host/etc/cni/net.d/*multus*.conf >/dev/null 2>&1; do
+                echo "Waiting for AMD ionic driver and Multus CNI config to be ready"
+                sleep 2
+              done
+          image: {{ .Values.image.initContainerImage }}
+          imagePullPolicy: IfNotPresent
+          resources: {}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /sys
+            name: sys
+          - mountPath: /host/etc/cni/
+            name: cni
+      containers:
+        - name: {{ .Release.Name }}-device-plugin
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          imagePullPolicy: {{ .Values.image.pullPolicy}}
+          env:
+          - name: DS_NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - mountPath: /var/lib/kubelet/device-plugins
+              name: kubelet-device-plugins
+            - mountPath: /var/lib/kubelet/plugins_registry
+              name: kubelet-plugins-registry
+            - mountPath: /var/log
+              name: var-log
+            - mountPath: /var/run/k8s.cni.cncf.io/devinfo/dp
+              name: device-info
+            - mountPath: /etc/pcidp
+              name: device-plugin-config-volume
+            - mountPath: /var/lib/amd-metrics-exporter
+              name: health
+            - mountPath: /usr/sbin/nicctl
+              name: nicctl
+          workingDir: /root
+      volumes:
+        - hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: Directory
+          name: kubelet-device-plugins
+        - hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+          name: kubelet-plugins-registry
+        - hostPath:
+            path: /var/log
+            type: Directory
+          name: var-log
+        - hostPath:
+            path: /var/run/k8s.cni.cncf.io/devinfo/dp
+            type: DirectoryOrCreate
+          name: device-info
+        - configMap:
+            defaultMode: 420
+            name: {{ .Release.Name }}-device-plugin-config
+          name: device-plugin-config-volume
+        - hostPath:
+            path: /var/lib/amd-metrics-exporter
+            type: DirectoryOrCreate
+          name: health
+        - hostPath:
+            path: /sys
+            type: Directory
+          name: sys
+        - hostPath:
+            path: /etc/cni
+            type: Directory
+          name: cni
+        - hostPath:
+            path: /usr/sbin/nicctl
+            type: FileOrCreate
+          name: nicctl
+

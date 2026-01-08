@@ -1,0 +1,73 @@
+# -- Container image configuration
+image:
+  # -- Container image repository
+  repository: docker.io/rocm/k8s-network-device-plugin
+  # -- Container image tag
+  tag: v0.0.1
+  # -- Container image pull policy
+  pullPolicy: IfNotPresent
+  # -- initContainer image
+  initContainerImage: busybox:1.36
+
+# -- Service account name to use. If not set, defaults to Release name
+serviceAccountName: ""
+
+# -- Additional annotations to add to the DaemonSet pods
+annotations: {}
+
+# -- Security context for the DaemonSet pods
+securityContext:
+  # -- Run containers in privileged mode (required for accessing host network interfaces)
+  privileged: true
+
+# -- Resource limits and requests for the containers
+resources: {}
+  # limits:
+  #   memory: 20Mi
+  #   cpu: 100m
+  # requests:
+  #   memory: 30Mi
+  #   cpu: 150m
+
+# -- Update strategy for the DaemonSet
+updateStrategy:
+  # -- Type of update strategy (RollingUpdate or OnDelete)
+  type: RollingUpdate
+  rollingUpdate:
+    # -- Maximum number of pods that can be unavailable during update
+    maxUnavailable: 1
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Node selector to constrain pods to specific nodes
+nodeSelector: {}
+
+# -- Tolerations for pod assignment to nodes with taints
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+
+# -- List of configmap objects which provide info on device resources
+configMap:
+  resourceList:
+    - resourceName: "nic"
+      resourcePrefix: "amd.com"
+      enableExporterHealthCheck: true
+      disableDeviceConfig: false
+      selectors:
+        vendors: ["1dd8"]
+        devices: ["1002"]
+        drivers: ["ionic"]
+        excludeTopology: true
+        isRdma: true
+    - resourceName: "vnic"
+      resourcePrefix: "amd.com"
+      enableExporterHealthCheck: true
+      disableDeviceConfig: false
+      selectors:
+        vendors: ["1dd8"]
+        devices: ["1003"]
+        drivers: ["ionic"]
+        excludeTopology: true
+        isRdma: true
