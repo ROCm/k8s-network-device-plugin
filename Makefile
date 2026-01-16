@@ -77,6 +77,10 @@ endef
 .PHONY: all
 all: lint build test
 
+.PHONY: fmt
+fmt: ## Run go fmt against code.
+	go fmt ./...
+
 .PHONY: create-dirs
 create-dirs: $(DIRS)
 
@@ -188,6 +192,9 @@ helm-install:
 .PHONY: helm-uninstall
 helm-uninstall:
 	helm uninstall $(HELM_RELEASE_NAME) --namespace $(HELM_RELEASE_NAMESPACE)
+
+copyrights:
+	GOFLAGS=-mod=mod go run tools/build/copyright/main.go && ${MAKE} fmt && ./tools/build/check-local-files.sh
 
 # go-install-tool will 'go install' any package $2 and install it to $1.
 define go-install-tool
