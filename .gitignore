@@ -1,0 +1,17 @@
+/bin/
+/build/
+
+# Helm chart bundles
+*.tgz
+/helm-charts-k8s/*.tgz
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+/test/coverage*
+
+# Sphinx documentation
+_build/
+.venv/
