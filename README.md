@@ -73,4 +73,8 @@ The configuration knob `enableExporterHealthCheck` enables or disables health ch
 }
 ```
 
+## Contribution
+We welcome contributions from the community! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated. Please refer to the [Developer Guide](./docs/contributing/developer-guide.md) for details on how to get started.
+
+## Summary
 The AMD Network Device Plugin for Kubernetes enables seamless discovery, health monitoring, and allocation of AMD Pollara AI NICs within Kubernetes clusters. By integrating with Kubernetes’ device plugin framework and optional exporter-based health checks, it ensures efficient, reliable, and scalable access to high-performance networking resources for AI and accelerated workloads.
