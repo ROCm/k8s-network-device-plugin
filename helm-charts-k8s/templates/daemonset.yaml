@@ -95,8 +95,6 @@ spec:
               name: device-plugin-config-volume
             - mountPath: /var/lib/amd-metrics-exporter
               name: health
-            - mountPath: /usr/sbin/nicctl
-              name: nicctl
           workingDir: /root
       volumes:
         - hostPath:
@@ -131,8 +129,4 @@ spec:
             path: /etc/cni
             type: Directory
           name: cni
-        - hostPath:
-            path: /usr/sbin/nicctl
-            type: FileOrCreate
-          name: nicctl
 
