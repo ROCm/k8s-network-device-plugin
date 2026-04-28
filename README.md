@@ -81,11 +81,18 @@ kubectl apply -f ./deployments/k8s-network-device-plugin-daemonset.yaml
 
 ### Using Helm
 
-You can also deploy the device plugin using Helm. A pre-built Helm chart is available at:
+You can also deploy the device plugin using Helm. Add the AMD Helm repository and install the chart:
 
-```text
-./helm-charts-k8s
+```bash
+helm repo add rocm-network-dp https://rocm.github.io/k8s-network-device-plugin
+helm repo update
+helm install amd-network-device-plugin rocm-network-dp/network-device-plugin-charts \
+  --namespace kube-amd-network \
+  --create-namespace \
+  --version v1.2.0
 ```
+
+For detailed installation instructions and configuration options, refer to the [Helm Installation Guide](./docs/installation/kubernetes-helm.md).
 
 Once deployed, the device plugin discovers AMD AI NICs and advertises them to the kubelet using the following resource names:
 
