@@ -1,0 +1,35 @@
+apiVersion: v1
+entries:
+  network-device-plugin-charts:
+  - apiVersion: v2
+    appVersion: v1.2.0
+    created: "2026-04-28T00:12:28.319697122Z"
+    description: A Helm chart for AMD Network Device Plugin
+    digest: cdfaf888ab45dbd0da3725ca953a5fcd071a6659d004447deefd7322bfe5e519
+    home: https://github.com/ROCm/k8s-network-device-plugin
+    icon: https://raw.githubusercontent.com/ROCm/k8s-device-plugin/master/helm/logo.png
+    keywords:
+    - kubernetes
+    - cluster
+    - hardware
+    - amd
+    - nic
+    - network
+    - ai
+    - deep learning
+    kubeVersion: '>= 1.29.0-0'
+    maintainers:
+    - email: Sundaramurthy.Gurunathan@amd.com
+      name: Sundara Gurunathan
+    - email: Yuvarani.Shankar@amd.com
+      name: Yuvarani Shankar
+    - email: Shrey.Ajmera@amd.com
+      name: Shrey Ajmera
+    name: network-device-plugin-charts
+    sources:
+    - https://github.com/ROCm/k8s-network-device-plugin
+    type: application
+    urls:
+    - https://rocm.github.io/k8s-network-device-plugin/charts/k8s-network-device-plugin-charts-v1.2.0.tgz
+    version: v1.2.0
+generated: "2026-04-28T00:12:28.318480651Z"

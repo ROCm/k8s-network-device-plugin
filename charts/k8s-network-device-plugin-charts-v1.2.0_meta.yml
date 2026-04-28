@@ -1,0 +1,2 @@
+images:
+  - target: docker.io/rocm/k8s-network-device-plugin:v1.2.0
