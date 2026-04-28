@@ -16,16 +16,20 @@ Refer to the [README](../../README.md) for more details on these runtime prerequ
 
 ## Installation
 
-### Download the chart archive
+### Add the AMD Helm Repository
 
-Download the Network Device Plugin Helm chart archive from the release artifacts.
+```bash
+helm repo add rocm-network-dp https://rocm.github.io/k8s-network-device-plugin
+helm repo update
+```
 
 ### Install the Helm chart
 
 ```bash
-helm install amd-network-device-plugin <path-to-chart-archive>.tgz \
+helm install amd-network-device-plugin rocm-network-dp/network-device-plugin-charts \
   --namespace kube-amd-network \
-  --create-namespace
+  --create-namespace \
+  --version v1.2.0
 ```
 
 ### Verify the installation
@@ -59,9 +63,10 @@ To override default values, pass `--set key=value` on the command line or supply
 To schedule the Device Plugin DaemonSet pods on nodes with a custom taint, add the required toleration:
 
 ```bash
-helm install amd-network-device-plugin <path-to-chart-archive>.tgz \
+helm install amd-network-device-plugin rocm-network-dp/network-device-plugin-charts \
   --namespace kube-amd-network \
   --create-namespace \
+  --version v1.2.0 \
   --set tolerations[0].key=example.com/foo \
   --set tolerations[0].operator=Exists \
   --set tolerations[0].effect=NoSchedule
@@ -77,9 +82,10 @@ tolerations:
 ```
 
 ```bash
-helm install amd-network-device-plugin <path-to-chart-archive>.tgz \
+helm install amd-network-device-plugin rocm-network-dp/network-device-plugin-charts \
   --namespace kube-amd-network \
   --create-namespace \
+  --version v1.2.0 \
   -f my-values.yaml
 ```
 
@@ -88,7 +94,8 @@ helm install amd-network-device-plugin <path-to-chart-archive>.tgz \
 Use the `--debug` flag with `helm install` or `helm template` to see the fully rendered Kubernetes manifests with all values applied. This is useful for verifying that overrides are taking effect before deploying:
 
 ```bash
-helm template amd-network-device-plugin <path-to-chart-archive>.tgz \
+helm template amd-network-device-plugin rocm-network-dp/network-device-plugin-charts \
+  --version v1.2.0 \
   --debug \
   -f my-values.yaml
 ```
@@ -96,9 +103,10 @@ helm template amd-network-device-plugin <path-to-chart-archive>.tgz \
 Use `--dry-run` with `helm install` to simulate the installation without applying any resources to the cluster. Unlike `helm template`, a dry run communicates with the Kubernetes API server to validate the manifests against the cluster:
 
 ```bash
-helm install amd-network-device-plugin <path-to-chart-archive>.tgz \
+helm install amd-network-device-plugin rocm-network-dp/network-device-plugin-charts \
   --namespace kube-amd-network \
   --create-namespace \
+  --version v1.2.0 \
   --dry-run \
   -f my-values.yaml
 ```
