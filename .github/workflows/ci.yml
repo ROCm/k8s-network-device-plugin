@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release-*'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# No job needs write access or secrets, so pull requests from forks are safe.
+permissions:
+  contents: read
+
+# Most jobs run their target inside the build container via `make docker-<target>`,
+# so the runner needs only Docker - no Go, Helm or golangci-lint. CI and local
+# development therefore use the same toolchain, pinned by GOLANG_VERSION.
+
+jobs:
+  go-version-check:
+    name: Go Version Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # if this fails, align go.mod, GOLANG_VERSION in the Makefile, and the ARG
+      # default in both Dockerfiles
+      - name: Ensure Go version pins agree
+        run: make check-golang-version
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build binary
+        run: make docker-build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sriovdp
+          path: build/sriovdp
+          retention-days: 7
+
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run unit tests
+        run: make docker-test
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run golangci-lint
+        run: make docker-lint
+
+  helm-build:
+    name: Helm Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Helm chart
+        run: make docker-helm
+
+      - name: Upload Helm chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: helm-charts-k8s/*.tgz
+          retention-days: 7
+
+  image:
+    name: Image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Runs on the host, not in the build container: this builds the product
+      # image and needs a real Docker daemon. The image is built locally and
+      # never pushed, so no registry credentials are involved.
+      - name: Build product image
+        run: make image

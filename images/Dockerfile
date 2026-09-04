@@ -3,7 +3,10 @@ ARG BOOTSTRAP_VERSION=""
 # If BOOTSTRAP_VERSION is empty, defaults to the last version in AINIC_VERSIONS
 
 # --- Build stage ---
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
+# Keep in sync with GOLANG_VERSION in dev.env; `make check-golang-version`
+# verifies this. The default is used when building without build-args.
+ARG GOLANG_VERSION=1.25.8
+FROM registry.access.redhat.com/ubi9/go-toolset:${GOLANG_VERSION} AS builder
 WORKDIR /usr/src/sriov-network-device-plugin
 # Cache Go modules layer separately
 COPY go.mod go.sum ./

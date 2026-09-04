@@ -1,78 +1,47 @@
-ARG BUILD_BASE_IMG=ubuntu:22.04
+# Local build container for Go and Helm work: build, test, lint, helm, mocks.
+# Not used to build the product image; `make image` runs on the host.
+
+ARG GOLANG_VERSION=1.25.8
+ARG BUILD_BASE_IMG=golang:${GOLANG_VERSION}
 FROM ${BUILD_BASE_IMG}
 
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV LANG=en_US.UTF-8
-ENV LANGUAGE=en_US:en
-ENV LC_ALL=en_US.UTF-8
+# Keep minimal; this layer is rebuilt whenever the base image changes.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        make \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install necessary packages
-RUN apt-get update -y && \
-    apt-get install -y --no-install-recommends \
-    openssh-client \
-    build-essential \
-    wget \
-    git \
-    curl \
-    protobuf-compiler \
-    locales \
-    ca-certificates \
-    docker.io \
-    sudo && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install Docker
-RUN install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
-    chmod a+r /etc/apt/keyrings/docker.asc && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
-    tee /etc/apt/sources.list.d/docker.list > /dev/null && \
-    apt-get update -y && \
-    apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Set up locale
-RUN localedef -i en_US -f UTF-8 en_US.UTF-8
-
-# Install Go (sha256 pinned)
-RUN wget https://go.dev/dl/go1.26.1.linux-amd64.tar.gz && \
-    echo "031f088e5d955bab8657ede27ad4e3bc5b7c1ba281f05f245bcc304f327c987a  go1.26.1.linux-amd64.tar.gz" | sha256sum -c - && \
-    tar -C /usr/local -xzf go1.26.1.linux-amd64.tar.gz && \
-    rm go1.26.1.linux-amd64.tar.gz
-
-ENV PATH="/usr/local/go/bin:${PATH}"
-
-RUN curl --proto '=https' --tlsv1.2 -fsSL -o helm.tar.gz https://get.helm.sh/helm-v3.21.4-linux-amd64.tar.gz && \
-    echo "61f88ab166748cb19604d7884cb100ae9ccb13804ddeb98e08af167eacbb6a14  helm.tar.gz" | sha256sum -c - && \
+# Helm (sha256 pinned)
+ARG HELM_VERSION=v3.21.4
+ARG HELM_SHA256=61f88ab166748cb19604d7884cb100ae9ccb13804ddeb98e08af167eacbb6a14
+RUN curl --proto '=https' --tlsv1.2 -fsSL -o helm.tar.gz \
+        "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" && \
+    echo "${HELM_SHA256}  helm.tar.gz" | sha256sum -c - && \
     tar -xzf helm.tar.gz --strip-components=1 -C /usr/local/bin linux-amd64/helm && \
     rm helm.tar.gz
 
-RUN curl --proto '=https' --tlsv1.2 -fsSL https://github.com/arttor/helmify/releases/download/v0.4.13/helmify_Linux_x86_64.tar.gz \
-    -o helmify_Linux_x86_64.tar.gz && \
-    echo "f5963c31e8789bb37858813c5e574722b23c03c1613eebafc079da7129cd319c  helmify_Linux_x86_64.tar.gz" | sha256sum -c - && \
-    tar -C /usr/local/bin/ -xzf helmify_Linux_x86_64.tar.gz && \
-    rm helmify_Linux_x86_64.tar.gz
+# Go tooling. Versions must match the ones pinned in the Makefile.
+ARG GOLANGCI_LINT_VERSION=v1.63.4
+ARG HELM_DOCS_VERSION=v1.12.0
+ARG MOCKERY_VERSION=v2.53.6
+# Clean the caches in the same layer; they are large and unused at runtime.
+RUN go install "github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}" && \
+    go install "github.com/norwoodj/helm-docs/cmd/helm-docs@${HELM_DOCS_VERSION}" && \
+    go install "github.com/vektra/mockery/v2@${MOCKERY_VERSION}" && \
+    go clean -cache -modcache -testcache
 
-RUN curl --proto '=https' --tlsv1.2 -fsSLo /usr/local/bin/kubectl 'https://dl.k8s.io/release/v1.30.4/bin/linux/amd64/kubectl' && \
-    echo "2ffd023712bbc1a9390dbd8c0c15201c165a69d394787ef03eda3eccb4b9ac06  /usr/local/bin/kubectl" | sha256sum -c - && \
-    chmod +x /usr/local/bin/kubectl
+# Targets run as the invoking user, so the tools must be readable by any uid.
+RUN chmod -R a+rx /go/bin
 
-ARG INSECURE_REGISTRY
-RUN echo "INSECURE_REGISTRY is: $INSECURE_REGISTRY" && \
-    if [ -n "$INSECURE_REGISTRY" ]; then \
-    mkdir -p /etc/docker && \
-    echo "{ \
-    \"insecure-registries\": [\"$INSECURE_REGISTRY\"] \
-    }" > /etc/docker/daemon.json; \
-    else \
-    echo "INSECURE_REGISTRY is not set"; \
-    fi
+# Override the Makefile's tool variables so it uses these copies instead of
+# installing its own into the mounted workspace.
+ENV GOLANGCI_LINT=/go/bin/golangci-lint \
+    HELMDOCS=/go/bin/helm-docs \
+    MOCKERY=/go/bin/mockery
 
-# Copy entrypoint script
-COPY entrypoint_build.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# The workspace is bind-mounted and owned by the invoking user, not the image.
+RUN git config --system --add safe.directory /k8s-network-device-plugin
 
-# Entrypoint
-ENTRYPOINT ["/entrypoint.sh"]
+WORKDIR /k8s-network-device-plugin
