@@ -209,10 +209,13 @@ func (dc *DevConfigClient) updateDevIDmap() (map[string]string, error) {
 	showCardDeviceCmd := configClientBinary + " " + strings.Join(showCardDeviceArgs, " ")
 	cmdResp, err := dc.execWithContext(configClientTimeoutInSecs, configClientBinary, showCardDeviceArgs...)
 	if err != nil {
-		err = fmt.Errorf("failed to get device HW data: %v", err)
-		glog.Errorf("%v", err)
-		glog.Infof("command: %s, failed with response: %v", showCardDeviceCmd, string(cmdResp))
-		return devMap, err
+		if len(cmdResp) == 0 {
+			err = fmt.Errorf("failed to get device HW data: %v", err)
+			glog.Errorf("%v", err)
+			glog.Infof("command: %s", showCardDeviceCmd)
+			return devMap, err
+		}
+		glog.Warningf("command %s returned error (%v) but produced output, proceeding with partial data", showCardDeviceCmd, err)
 	}
 	var resp Response
 	err = json.Unmarshal(cmdResp, &resp)
