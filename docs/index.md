@@ -37,11 +37,12 @@ The **AMD Network Device Plugin for Kubernetes** enables Kubernetes clusters to 
 
 The following matrix summarizes supported NICs and the required AINIC firmware / tooling for each container image version.
 
-| AINIC Firmware Version           | Image Version | Supported NICs |
-| ---------------------------------| ------------- | -------------- |
-| N/A (host `nicctl`)              | `v1.0.0`      | Pollara 400    |
-| `1.117.5-a-56`                   | `v1.1.0`      | Pollara 400    |
-| `1.117.5-a-56`<br>`1.117.5-a-77` | `v1.2.0`      | Pollara 400    |
+| AINIC Firmware Version                                 | Image Version | Supported NICs | Supported Platforms                    |
+| ------------------------------------------------------ | ------------- | -------------- | -------------------------------------- |
+| N/A (host `nicctl`)                                    | `v1.0.0`      | Pollara 400    | Kubernetes 1.29+                       |
+| `1.117.5-a-56`                                         | `v1.1.0`      | Pollara 400    | Kubernetes 1.29+                       |
+| `1.117.5-a-56`<br>`1.117.5-a-77`                       | `v1.2.0`      | Pollara 400    | Kubernetes 1.29+                       |
+| `1.117.5-a-77`<br>`1.117.5-a-147`<br>`1.117.5-a-196`   | `v1.2.1`      | Pollara 400    | Kubernetes 1.29+, OpenShift 4.21       |
 
 ## Prerequisites
 
