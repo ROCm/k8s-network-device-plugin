@@ -11,6 +11,11 @@ endif
 
 PROJECT_VERSION ?= v1.2.0
 
+# Go toolchain for Dockerfile.build and the images/Dockerfile builder stage.
+# Must match go.mod and the ARG default in both Dockerfiles - see
+# check-golang-version.
+GOLANG_VERSION ?= 1.25.8
+
 export GOPATH?=$(shell go env GOPATH)
 BINDIR=$(CURDIR)/bin
 # Build info
@@ -44,9 +49,11 @@ HELM_OUTPUT_FILE_PREFIX ?= k8s-network-device-plugin-helm-k8s
 HELM_OUTPUT_FILE_NAME ?= $(HELM_OUTPUT_FILE_PREFIX)-$(PROJECT_VERSION).tgz
 CHART_DEST ?= $(HELM_CHART_DIR)/$(HELM_OUTPUT_FILE_NAME)
 
-DOCKER_BUILDER_TAG := v1.2
-DOCKER_BUILDER_IMAGE := $(DOCKER_REGISTRY)/k8s-network-device-plugin-build:$(DOCKER_BUILDER_TAG)
-BUILD_BASE_IMG ?= ubuntu:22.04
+# Local build container image; never pushed or pulled. The tag tracks
+# GOLANG_VERSION so a Go bump does not reuse a stale image.
+DOCKER_BUILDER_TAG := $(GOLANG_VERSION)
+DOCKER_BUILDER_IMAGE ?= k8s-network-device-plugin-build:$(DOCKER_BUILDER_TAG)
+BUILD_BASE_IMG ?= golang:$(GOLANG_VERSION)
 CONTAINER_WORKDIR := /k8s-network-device-plugin
 
 # Docker arguments - To pass proxy for Docker invoke it as 'make image HTTP_POXY=http://192.168.0.1:8080'
@@ -83,22 +90,38 @@ GOBIN=$(PROJECT_DIR)/bin GOFLAGS=-mod=mod go install $(2);\
 endef
 
 .PHONY: default
-default: docker-build-env ## Quick start to build everything from docker shell container
-	@echo "Starting a shell in the Docker build container..."
-	@docker run --rm -it --privileged \
-		--name k8s-network-device-plugin-build \
-		-e "USER_NAME=$(shell whoami)" \
-		-e "USER_UID=$(shell id -u)" \
-		-e "USER_GID=$(shell id -g)" \
-		-v $(CURDIR):/k8s-network-device-plugin \
-		-v $(CURDIR):/home/$(shell whoami)/go/src/github.com/ROCm/k8s-network-device-plugin \
-		-v $(HOME)/.ssh:/home/$(shell whoami)/.ssh \
-		-w $(CONTAINER_WORKDIR) \
-		$(DOCKER_BUILDER_IMAGE) \
-		cd /k8s-network-device-plugin && git config --global --add safe.directory /k8s-network-device-plugin && make image
+default: docker-lint docker-build docker-test ## Quick start - lint, build and test in the build container
 
 .PHONY: all
 all: lint build test
+
+# Targets with a containerized twin: `make docker-test` runs `make test` inside
+# $(DOCKER_BUILDER_IMAGE). `image` is excluded; it needs a Docker daemon and
+# runs on the host.
+CONTAINER_TARGETS := build test test-race test-coverage lint fmt mod helm copyrights generate-mocks
+DOCKER_TARGETS := $(patsubst %,docker-%,$(CONTAINER_TARGETS))
+.PHONY: $(DOCKER_TARGETS)
+
+# Go caches, on a host directory owned by the invoking user. Must stay outside
+# the source tree: the module cache holds thousands of .go files, which `lint`
+# and tools/build/copyright would otherwise walk.
+BUILD_CACHE_DIR ?= $(HOME)/.cache/k8s-network-device-plugin
+CONTAINER_CACHE := /cache
+
+$(DOCKER_TARGETS): docker-%: docker-build-env
+	@echo "Running 'make $(*)' in container $(DOCKER_BUILDER_IMAGE)"
+	$Q mkdir -p $(BUILD_CACHE_DIR)
+	$Q docker run --rm \
+		-e HOME=$(CONTAINER_CACHE) \
+		-e GOCACHE=$(CONTAINER_CACHE)/go \
+		-e GOPATH=$(CONTAINER_CACHE)/gopath \
+		-e GOFLAGS=-mod=vendor \
+		-v $(CURDIR):$(CONTAINER_WORKDIR) \
+		-v $(BUILD_CACHE_DIR):$(CONTAINER_CACHE) \
+		--user $(shell id -u):$(shell id -g) \
+		-w $(CONTAINER_WORKDIR) \
+		$(DOCKER_BUILDER_IMAGE) \
+		make $(*)
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -119,12 +142,33 @@ create-dirs: $(DIRS)
 $(DIRS): ; $(info Creating directory $@...)
 	$Q mkdir -p $@
 
+# Verify one Go version across four places: go.mod, GOLANG_VERSION above, and the
+# ARG default in each Dockerfile. The ARG defaults are what image-push-*.yml
+# build with, since docker/build-push-action passes no build-args.
+# Run by the Go Version Check job in build-test-lint.yml. Requires no Go.
+.PHONY: check-golang-version
+check-golang-version: ## Verify the Go version pins all agree
+	$Q fail=0; \
+	for spec in "go.mod:^go :2" "images/Dockerfile:^ARG GOLANG_VERSION=:2" "Dockerfile.build:^ARG GOLANG_VERSION=:2"; do \
+		file=$${spec%%:*}; rest=$${spec#*:}; pat=$${rest%:*}; \
+		got=$$(grep -m1 -E "$$pat" "$$file" | tr '= ' '\n\n' | tail -1); \
+		if [ "$$got" != "$(GOLANG_VERSION)" ]; then \
+			echo "  $$file says '$$got', GOLANG_VERSION is '$(GOLANG_VERSION)'"; fail=1; \
+		fi; \
+	done; \
+	if [ $$fail -ne 0 ]; then \
+		echo "Go version pins disagree - update them together."; exit 1; \
+	fi
+
 .PHONY: build
 build: | $(BUILDDIR) ; $(info Building $(BINARY_NAME)...) @ ## Build SR-IOV Network device plugin
 	$Q cd $(CURDIR)/cmd/$(BINARY_NAME) && $(GO_BUILD_OPTS) go build -ldflags '$(GO_LDFLAGS)' $(GO_FLAGS) -o $(BUILDDIR)/$(BINARY_NAME) $(GO_TAGS) -v
 	$(info Done!)
 
-GOLANGCI_LINT = $(BINDIR)/golangci-lint
+# Tool paths. `?=` so the build container can override them with its own
+# pre-installed copies; otherwise go-get-tool installs the pinned version below
+# into ./bin.
+GOLANGCI_LINT ?= $(BINDIR)/golangci-lint
 GOLANGCI_LINT_VERSION ?= v1.63.4
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
@@ -140,7 +184,7 @@ lint: golangci-lint ; $(info  Running golangci-lint linter...) @ ## Run golangci
 	fi
 	$Q $(GOLANGCI_LINT) run -v --timeout 5m0s
 
-MOCKERY = $(BINDIR)/mockery
+MOCKERY ?= $(BINDIR)/mockery
 $(MOCKERY): | $(BINDIR) ; $(info  installing mockery...)
 	$(call go-install-tool,$(MOCKERY),github.com/vektra/mockery/v2@latest)
 
@@ -170,11 +214,13 @@ image: ; $(info Building Docker image...) @ ## Build SR-IOV Network device plugi
 #   make image DOCKERARGS="--build-arg AINIC_VERSIONS=1.117.5-a-56,1.117.5-a-77,1.117.5-a-88,1.117.5-a-103,1.117.5-a-147 --build-arg BOOTSTRAP_VERSION=1.117.5-a-147"
 ifeq ($(HOURLY_TAG_LABEL),)
 	$Q docker build \
+		--build-arg GOLANG_VERSION=$(GOLANG_VERSION) \
 		--build-arg AINIC_VERSIONS="1.117.5-a-77,1.117.5-a-147" \
 		--build-arg BOOTSTRAP_VERSION="1.117.5-a-147" \
 		-t $(IMG) -f $(DOCKERFILE) $(CURDIR) $(DOCKERARGS)
 else
 	$Q docker build \
+		--build-arg GOLANG_VERSION=$(GOLANG_VERSION) \
 		--build-arg AINIC_VERSIONS="1.117.5-a-77,1.117.5-a-147" \
 		--build-arg BOOTSTRAP_VERSION="1.117.5-a-147" \
 		--label HOURLY_TAG_LABEL=$(HOURLY_TAG_LABEL) \
@@ -215,7 +261,7 @@ helm-update-meta:
 helm-lint:
 	cd $(HELM_CHART_DIR); helm lint
 
-HELMDOCS = $(shell pwd)/bin/helm-docs
+HELMDOCS ?= $(BINDIR)/helm-docs
 .PHONY: helm-docs
 helm-docs: ## Download helm-docs locally if necessary
 	$(call go-get-tool,$(HELMDOCS),github.com/norwoodj/helm-docs/cmd/helm-docs@v1.12.0)
@@ -246,35 +292,29 @@ copyrights:
 	GOFLAGS=-mod=mod go run tools/build/copyright/main.go && ${MAKE} fmt && ./tools/build/check-local-files.sh
 
 .PHONY: docker-build-env
-docker-build-env: ## Build the docker shell container.
+docker-build-env: ## Build the build container.
 	@echo "Building the Docker environment..."
-	@if [ -n $(INSECURE_REGISTRY) ]; then \
-    docker build \
-        -t $(DOCKER_BUILDER_IMAGE) \
-        --build-arg BUILD_BASE_IMG=$(BUILD_BASE_IMG) \
-        --build-arg INSECURE_REGISTRY=$(INSECURE_REGISTRY) \
-        -f Dockerfile.build .; \
-	else \
-		docker build \
-			-t $(DOCKER_BUILDER_IMAGE) \
-			--build-arg BUILD_BASE_IMG=$(BUILD_BASE_IMG) \
-			-f Dockerfile.build .; \
-	fi
+	$Q docker build \
+		-t $(DOCKER_BUILDER_IMAGE) \
+		--build-arg BUILD_BASE_IMG=$(BUILD_BASE_IMG) \
+		--build-arg GOLANG_VERSION=$(GOLANG_VERSION) \
+		-f Dockerfile.build .
 
 .PHONY: docker/shell
 docker/shell: docker-build-env ## Bring up and attach to a shell container that has dev environment configured
 	@echo "Starting a shell in the Docker build container..."
-	@docker run --rm -it --privileged \
-		--name k8s-network-device-plugin-build \
-		-e "USER_NAME=$(shell whoami)" \
-		-e "USER_UID=$(shell id -u)" \
-		-e "USER_GID=$(shell id -g)" \
-		-v $(CURDIR):/k8s-network-device-plugin \
-		-v $(CURDIR):/home/$(shell whoami)/go/src/github.com/ROCm/k8s-network-device-plugin \
-		-v $(HOME)/.ssh:/home/$(shell whoami)/.ssh \
+	@mkdir -p $(BUILD_CACHE_DIR)
+	@docker run --rm -it \
+		-e HOME=$(CONTAINER_CACHE) \
+		-e GOCACHE=$(CONTAINER_CACHE)/go \
+		-e GOPATH=$(CONTAINER_CACHE)/gopath \
+		-e GOFLAGS=-mod=vendor \
+		-v $(CURDIR):$(CONTAINER_WORKDIR) \
+		-v $(BUILD_CACHE_DIR):$(CONTAINER_CACHE) \
+		--user $(shell id -u):$(shell id -g) \
 		-w $(CONTAINER_WORKDIR) \
 		$(DOCKER_BUILDER_IMAGE) \
-		bash -c "cd /k8s-network-device-plugin && git config --global --add safe.directory /k8s-network-device-plugin && bash"
+		bash
 
 # go-install-tool will 'go install' any package $2 and install it to $1.
 define go-install-tool
